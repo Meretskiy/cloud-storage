@@ -5,11 +5,9 @@ import io.netty.channel.ChannelHandlerContext;
 import com.meretskiy.cloud.storage.common.Command;
 import com.meretskiy.cloud.storage.common.Message;
 import io.netty.channel.ChannelInboundHandlerAdapter;
-import org.apache.logging.log4j.core.util.FileUtils;
-import java.io.BufferedOutputStream;
-import java.io.File;
-import java.io.IOException;
-import java.io.UnsupportedEncodingException;
+import org.apache.commons.io.FileUtils;
+
+import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
@@ -44,40 +42,207 @@ public class MainHandler extends ChannelInboundHandlerAdapter {
 
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) {
-        //TODO
+        ByteBuf buf = ((ByteBuf) msg);
+        while (buf.readableBytes() > 0) {
+            if (currentState == State.IDLE) {
+                readed = buf.readByte();
+                readCommand(readed, ctx);
+            }
+
+            if (directoryReading) {
+                readDirectory(buf, ctx);
+            }
+            if (fileReading) {
+                readFile(buf, ctx);
+            }
+        }
+        if (buf.readableBytes() == 0) {
+            buf.release();
+        }
     }
 
-//    private void readCommand(byte readed, ChannelHandlerContext ctx) {
-//        //TODO
-//    }
-//
-//    private void readDirectory(ByteBuf buf, ChannelHandlerContext ctx) {
-//        //TODO
-//    }
-//
-//    private void readFile(ByteBuf buf, ChannelHandlerContext ctx) {
-//        if (currentState == State.FILE_NAME_LENGTH) {
-//            if (buf.readableBytes() >= 4) {
-//                fileNameLength = buf.readInt();
-//                currentState = State.FILE_NAME;
-//            }
-//        }
-//    }
-//
-//    private void readCommand(byte readed, ChannelHandlerContext ctx) {
-//        //TODO
-//    }
-//
-//    private void readDirectory(ByteBuf buf, ChannelHandlerContext ctx) {
-//        //TODO
-//    }
-//
-//    private void readFile(ByteBuf buf, ChannelHandlerContext ctx) {
-//        //TODO
-//    }
+    private void readCommand(byte readed, ChannelHandlerContext ctx) {
+        if (readed == Command.SERVER_PATH_CURRENT.getByteValue()) {
+            Message.filesListMessage(currentServerPathGUI, ctx.channel(), Command.SERVER_PATH_CURRENT);
+        } else if (readed == Command.SERVER_PATH_UP.getByteValue()) {
+            if (!currentServerPathGUI.equals(rootServerPath)) {
+                currentServerPathGUI = currentServerPathGUI.getParent();
+                Message.filesListMessage(currentServerPathGUI, ctx.channel(), Command.SERVER_PATH_UP);
+            }
+        } else if (readed == Command.TRANSFER_DIRECTORY.getByteValue()) {
+            pathBeforeDirReading = currentServerPathGUI;
+            currentState = State.DIR_NAME_LENGTH;
+            directoryReading = true;
+        } else if (readed == Command.SERVER_PATH_DOWN.getByteValue() ||
+                readed == Command.TRANSFER_FILE.getByteValue() ||           // прием файла
+                readed == Command.DELETE_FILE.getByteValue() ||             // удаление
+                readed == Command.DOWNLOAD_FILE.getByteValue()||             // удаление
+                readed == Command.DOWNLOAD_DIRECTORY.getByteValue()) {            // запрос на скачивание
+            fileReading = true;
+            currentState = State.FILE_NAME_LENGTH;
+        } else {
+            System.out.println("ERROR: Invalid first byte - " + readed);
+        }
+    }
+
+    private void readDirectory(ByteBuf buf, ChannelHandlerContext ctx) {
+        if (currentState == State.DIR_NAME_LENGTH) {
+            if (buf.readableBytes() >= 4) {
+                fileNameLength = buf.readInt();
+                currentState = State.DIR_NAME;
+            }
+        }
+
+        if (currentState == State.DIR_NAME) {
+            try {
+                if (buf.readableBytes() >= fileNameLength) {
+                    byte[] fileName = new byte[fileNameLength];
+                    buf.readBytes(fileName);
+                    currentServerPathGUI = currentServerPathGUI.resolve(new String(fileName, "UTF-8"));
+                    if (!Files.exists(currentServerPathGUI)) {
+                        Files.createDirectory(currentServerPathGUI);
+                    }
+                    currentState = State.FILE_TYPE;
+                }
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+
+        if (currentState == State.FILE_TYPE) {
+            if (buf.readableBytes() > 0) {
+                byte b = buf.readByte();
+                if (b == Command.IS_DIRECTORY.getByteValue()) {
+                    currentState = State.DIR_NAME_LENGTH;
+                } else if (b == Command.IS_FILE.getByteValue()) {
+                    currentState = State.FILE_NAME_LENGTH;
+                    fileReading = true;
+                } else if (b == Command.END_DIRECTORY.getByteValue()) {
+                    currentServerPathGUI = currentServerPathGUI.getParent();
+                    if (currentServerPathGUI.equals(pathBeforeDirReading)) {
+                        currentState = State.IDLE;
+                        Message.filesListMessage(currentServerPathGUI, ctx.channel(), Command.SERVER_PATH_CURRENT);
+                        directoryReading = false;
+                    }
+                } else {
+                    System.out.println("ERROR: Invalid first byte - " + b);
+                    currentState = State.IDLE;
+                }
+            }
+        }
+    }
+
+    private void readFile(ByteBuf buf, ChannelHandlerContext ctx) {
+        if (currentState == State.FILE_NAME_LENGTH) {
+            if (buf.readableBytes() >= 4) {
+                fileNameLength = buf.readInt();
+                currentState = State.FILE_NAME;
+            }
+        }
+
+        if (currentState == State.FILE_NAME) {
+            if (buf.readableBytes() >= fileNameLength) {
+                byte[] fileName = new byte[fileNameLength];
+                buf.readBytes(fileName);
+                getFilePath(currentServerPathGUI, fileName);
+                if (readed == Command.TRANSFER_FILE.getByteValue() || readed == Command.TRANSFER_DIRECTORY.getByteValue()) {
+                    deleteFileIfExist(filePath);
+                    currentState = State.FILE_LENGTH;
+                } else if (!filePath.toFile().exists()) {
+                    currentState = State.IDLE;
+                    fileReading = false;
+                    Message.commandMessage(ctx.channel(), Command.FILE_DOES_NOT_EXIST);
+                } else {
+                    currentState = State.IDLE;
+                    fileReading = false;
+                    if (readed == Command.DELETE_FILE.getByteValue()) {
+                        deleteFileIfExist(filePath);
+                        Message.filesListMessage(currentServerPathGUI, ctx.channel(), Command.SERVER_PATH_CURRENT);
+                    } else if (readed == Command.DOWNLOAD_FILE.getByteValue()) {
+                        Message.commandMessage(ctx.channel(), Command.TRANSFER_FILE);
+                        Message.fileMessage(filePath, ctx.channel(), future -> {
+                            if (!future.isSuccess()) {
+                                future.cause().printStackTrace();
+                                Message.commandMessage(ctx.channel(), Command.DOWNLOAD_FILE_ERR);
+                            }
+                        });
+                    } else if (readed == Command.DOWNLOAD_DIRECTORY.getByteValue()) {
+                        Message.commandMessage(ctx.channel(), Command.TRANSFER_DIRECTORY);
+                        Message.directoryMessage(filePath, ctx.channel(), null);
+                    } else if (readed == Command.SERVER_PATH_DOWN.getByteValue()) {
+                        currentServerPathGUI = currentServerPathGUI.resolve(filePath.getFileName());
+                        Message.filesListMessage(currentServerPathGUI, ctx.channel(), Command.SERVER_PATH_DOWN);
+                    }
+
+                }
+            }
+        }
+
+        if (currentState == State.FILE_LENGTH) {
+            try {
+                if (buf.readableBytes() >= 8) {
+                    receivedFileLength = 0L;
+                    fileLength = buf.readLong();
+                    if (fileLength == 0) {
+                        Files.createFile(filePath);
+                        if (directoryReading) {
+                            currentState = State.FILE_TYPE;
+                        } else {
+                            Message.filesListMessage(currentServerPathGUI, ctx.channel(), Command.SERVER_PATH_CURRENT);
+                            currentState = State.IDLE;
+                        }
+                    } else {
+                        out = new BufferedOutputStream(new FileOutputStream(filePath.toString()));
+                        currentState = State.FILE;
+                    }
+                }
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+
+        if (currentState == State.FILE) {
+            try {
+                while (buf.readableBytes() > 0) {
+                    if (fileLength - receivedFileLength > tmpBufSize && buf.readableBytes() > tmpBufSize){
+                        buf.readBytes(tmpBuf);
+                        out.write(tmpBuf);
+                        receivedFileLength += tmpBufSize;
+                    } else {
+                        out.write(buf.readByte());
+                        receivedFileLength++;
+                        if (fileLength == receivedFileLength) {
+                            fileReading = false;
+                            out.close();
+                            if (directoryReading) {
+                                currentState = State.FILE_TYPE;
+                            } else {
+                                Message.filesListMessage(currentServerPathGUI, ctx.channel(), Command.SERVER_PATH_CURRENT);
+                                currentState = State.IDLE;
+                            }
+                            break;
+                        }
+                    }
+                }
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+
 
     private void deleteFileIfExist(Path delPath) {
-        //TODO
+        try {
+            if (Files.exists(delPath)) {
+                if (Files.isDirectory(delPath)) {
+                    FileUtils.deleteDirectory(new File(String.valueOf(delPath)));
+                } else {
+                    Files.delete(delPath);
+                }
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
     }
 
     private void getFilePath(Path path, byte[] fileName) {
