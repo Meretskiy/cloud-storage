@@ -7,6 +7,8 @@ import javafx.beans.value.ChangeListener;
 import javafx.beans.value.ObservableValue;
 import javafx.scene.control.*;
 import com.meretskiy.cloud.storage.common.FileInfo;
+import javafx.scene.layout.VBox;
+import org.apache.commons.lang3.exception.ExceptionUtils;
 
 import java.nio.file.Path;
 import java.util.List;
@@ -77,7 +79,28 @@ public class GUIHelper {
     }
 
     public static void showError(Exception e) {
-       //TODO
+        GUIHelper.updateUI(() -> {
+
+            Alert alert = new Alert(Alert.AlertType.ERROR);
+            alert.setTitle("Something went wrong!");
+            alert.setHeaderText(e.getMessage());
+
+            VBox dialogPaneContent = new VBox();
+            Label label = new Label("Stack Trace:");
+
+            String stackTrace = ExceptionUtils.getStackTrace(e);
+            TextArea textArea = new TextArea();
+            textArea.setText(stackTrace);
+
+            dialogPaneContent.getChildren().addAll(label, textArea);
+
+            // Set content for Dialog Pane
+            alert.getDialogPane().setContent(dialogPaneContent);
+            alert.setResizable(true);
+            alert.showAndWait();
+
+            e.printStackTrace();
+        });
     }
 
 }

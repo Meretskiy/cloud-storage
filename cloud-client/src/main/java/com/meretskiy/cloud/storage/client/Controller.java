@@ -81,7 +81,22 @@ public class Controller implements Initializable {
     }
 
     public @FXML void btnSendFile() {
-       //TODO
+        filePath = Paths.get(clientPathField.getText(), clientsFileLabel.getText());
+        if (Files.isDirectory(filePath)) {
+            Message.commandMessage(Network.getInstance().getCurrentChannel(), Command.TRANSFER_DIRECTORY);
+            Message.directoryMessage(filePath, Network.getInstance().getCurrentChannel(), future -> {
+                if (!future.isSuccess()) {
+                    GUIHelper.showError((Exception) future.cause());
+                }
+            });
+        } else {
+            Message.commandMessage(Network.getInstance().getCurrentChannel(), Command.TRANSFER_FILE);
+            Message.fileMessage(filePath, Network.getInstance().getCurrentChannel(), future -> {
+                if (!future.isSuccess()) {
+                    GUIHelper.showError((Exception) future.cause());
+                }
+            });
+        }
     }
     public @FXML void btnClientFileDelete() {
         filePath = Paths.get(clientPathField.getText(), clientsFileLabel.getText());
@@ -95,11 +110,22 @@ public class Controller implements Initializable {
 
     public @FXML
     void btnDownloadFile() {
-       //TODO
+        filePath = Paths.get(serverPathField.getText(), serversFileLabel.getText());
+        List<FileInfo> list = GUIHelper.serverFilesList.stream().
+                filter(fileInfo -> fileInfo.getName().equals(serversFileLabel.getText())).collect(Collectors.toList());
+
+        if (list.get(0).getFileType().equals(FileInfo.FileType.DIRECTORY)) {
+            Message.commandMessage(Network.getInstance().getCurrentChannel(), Command.DOWNLOAD_DIRECTORY);
+        } else  {
+            Message.commandMessage(Network.getInstance().getCurrentChannel(), Command.DOWNLOAD_FILE);
+        }
+        Message.fileNameMessage(filePath, Network.getInstance().getCurrentChannel());
     }
 
     public @FXML void btnServerFileDelete() {
-        //TODO
+        filePath = Paths.get(serverPathField.getText(), serversFileLabel.getText());
+        Message.commandMessage(Network.getInstance().getCurrentChannel(), Command.DELETE_FILE);
+        Message.fileNameMessage(filePath,Network.getInstance().getCurrentChannel());
             }
 
 
@@ -109,7 +135,42 @@ public class Controller implements Initializable {
     }
 
     public void showStoragePanel() {
-        //TODO
+        authPanel.setVisible(false);
+        storagePanel.setVisible(true);
+        GUIHelper.setCellValue(clientFilesTable);
+        GUIHelper.setCellValue(serverFilesTable);
+
+        clientFilesTable.setOnMouseClicked(new EventHandler<MouseEvent>() {
+            @Override
+            public void handle(MouseEvent event) {
+                if (event.getClickCount() == 2) {
+                    Path path = Paths.get(clientPathField.getText()).resolve(clientFilesTable.getSelectionModel().getSelectedItem().getName());
+                    if (Files.isDirectory(path)) {
+                        GUIHelper.currentClientPath = path;
+                        btnRefreshClientFilesTable();
+                    }
+                }
+            }
+        });
+
+        serverFilesTable.setOnMouseClicked(new EventHandler<MouseEvent>() {
+            @Override
+            public void handle(MouseEvent event) {
+                if (event.getClickCount() == 2) {
+                    FileInfo fileInfo = serverFilesTable.getSelectionModel().getSelectedItem();
+                    Path path = Paths.get(serverPathField.getText()).resolve(fileInfo.getName());
+                    if (fileInfo.getFileType() == FileInfo.FileType.DIRECTORY) {
+                        GUIHelper.targetServerDirectory = fileInfo.getName();
+                        Message.filesListRequestMessage(path, Network.getInstance().getCurrentChannel(), Command.SERVER_PATH_DOWN);                    }
+                }
+            }
+        });
+        clientsFileLabel = new Label();
+        GUIHelper.setFileLabel(clientFilesTable, clientsFileLabel);
+        serversFileLabel = new Label();
+        GUIHelper.setFileLabel(serverFilesTable, serversFileLabel);
+        btnRefreshClientFilesTable();
+        Message.commandMessage(Network.getInstance().getCurrentChannel(), Command.SERVER_PATH_CURRENT);
     }
 
 
@@ -143,7 +204,11 @@ public class Controller implements Initializable {
     }
 
     public void btnServerPathUpAction(ActionEvent actionEvent) {
-       //TODO
+        Path upperPath = Paths.get(clientPathField.getText()).getParent();
+        if (upperPath != null) {
+            GUIHelper.currentClientPath = upperPath;
+            btnRefreshClientFilesTable();
+        }
     }
 
 

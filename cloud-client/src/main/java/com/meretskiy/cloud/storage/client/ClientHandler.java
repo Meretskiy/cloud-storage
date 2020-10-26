@@ -80,7 +80,41 @@ public class ClientHandler extends ChannelInboundHandlerAdapter {
     }
 
     private void readCommand(byte readed) {
-        //TODO
+        if (readed == Command.AUTH_OK.getByteValue()) {
+            System.out.println("Добро пожаловать!");
+            callbackList.get(0).callback();
+        } else if (readed == Command.AUTH_ERR.getByteValue()) {
+            GUIHelper.showError(new RuntimeException("Неверный логин или пароль"));
+        } else if (readed == Command.SERVER_PATH_CURRENT.getByteValue() || readed == Command.SERVER_PATH_DOWN.getByteValue() ||
+                readed == Command.SERVER_PATH_UP.getByteValue()) {
+            GUIHelper.serverFilesList.clear();
+            currentState = State.LIST_SIZE;
+            fileListReading = true;
+        } else if (readed == Command.SERVER_PATH_DOWN_EMPTY.getByteValue()) {
+            GUIHelper.serverFilesList.clear();
+            GUIHelper.currentServerPath = GUIHelper.currentServerPath.resolve(GUIHelper.targetServerDirectory);
+            callbackList.get(1).callback();
+        } else if (readed == Command.SERVER_PATH_CURRENT_EMPTY.getByteValue()) {
+            GUIHelper.serverFilesList.clear();
+            callbackList.get(1).callback();
+        } else if (readed == Command.FILE_DOES_NOT_EXIST.getByteValue()) {
+            GUIHelper.showError(new RuntimeException("Данный файл не существует"));
+        } else if (readed == Command.TRANSFER_FILE_ERR.getByteValue()) {
+            GUIHelper.showError(new RuntimeException("Не удалось отправить файл"));
+        } else if (readed == Command.DELETE_FILE_ERR.getByteValue()) {
+            GUIHelper.showError(new RuntimeException("Не удалось удалить файл"));
+        } else if (readed == Command.DOWNLOAD_FILE_ERR.getByteValue()) {
+            GUIHelper.showError(new RuntimeException("Не удалось скачать файл"));
+        } else if (readed == Command.TRANSFER_FILE.getByteValue()) {
+            currentState = State.FILE_NAME_LENGTH;
+            fileReading = true;
+        } else if (readed == Command.TRANSFER_DIRECTORY.getByteValue()) {
+            pathBeforeDirReading = GUIHelper.currentClientPath;
+            currentState = State.DIR_NAME_LENGTH;
+            directoryReading = true;
+        } else {
+            System.out.println("ERROR: Invalid first byte - " + readed);
+        }
     }
 
     private void readDirectory(ByteBuf buf) {
@@ -135,7 +169,63 @@ public class ClientHandler extends ChannelInboundHandlerAdapter {
     }
 
     private void readServerFilesList(ByteBuf buf) {
-       //TODO
+        if (currentState == State.NAME_LENGTH_LIST) {
+            if (buf.readableBytes() >= 4) {
+                fileNameLength = buf.readInt();
+                currentState = State.NAME_LIST;
+            }
+        }
+        if (currentState == State.NAME_LIST) {
+            if (buf.readableBytes() >= fileNameLength) {
+                byte[] nextFileNameBytes = new byte[fileNameLength];
+                buf.readBytes(nextFileNameBytes);
+                getFileName(nextFileNameBytes);
+                currentState = State.FILE_TYPE;
+            }
+        }
+
+        if (currentState == State.FILE_TYPE) {
+            if (buf.readableBytes() > 0) {
+                byte isDirectoryOrFile = buf.readByte();
+                if (isDirectoryOrFile == Command.IS_DIRECTORY.getByteValue()) {
+                    fileType = FileInfo.FileType.DIRECTORY;
+                    currentState = State.FILE_LENGTH_LIST;
+                } else if (isDirectoryOrFile == Command.IS_FILE.getByteValue()) {
+                    fileType = FileInfo.FileType.FILE;
+                    currentState = State.FILE_LENGTH_LIST;
+                } else {
+                    System.out.println("ERROR: Invalid first byte - " + isDirectoryOrFile);
+                    currentState = State.IDLE;
+                }
+            }
+        }
+
+        if (currentState == State.FILE_LENGTH_LIST) {
+            if (buf.readableBytes() >= 8) {
+                long fileSize = buf.readLong();
+                filePath = GUIHelper.currentClientPath.resolve(fileName);
+                FileInfo fileInfo = new FileInfo(fileName, fileSize, fileType);
+                GUIHelper.serverFilesList.add(fileInfo);
+                listSize--;
+                if (listSize == 0) {
+                    if (readed == Command.SERVER_PATH_DOWN.getByteValue()) {
+                        GUIHelper.currentServerPath = GUIHelper.currentServerPath.resolve(GUIHelper.targetServerDirectory);
+                    }
+                    if (readed == Command.SERVER_PATH_UP.getByteValue()) {
+                        Path upperPath = GUIHelper.currentServerPath.getParent();
+                        if (upperPath != null) {
+                            GUIHelper.currentServerPath = upperPath;
+                        }
+                    }
+                    callbackList.get(1).callback();
+                    fileListReading = false;
+                    currentState = State.IDLE;
+
+                } else {
+                    currentState = State.NAME_LENGTH_LIST;
+                }
+            }
+        }
     }
 
     private void readFile(ByteBuf buf) {
