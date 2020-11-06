@@ -14,7 +14,7 @@ import javafx.scene.layout.HBox;
 import org.apache.commons.io.FileUtils;
 import com.meretskiy.cloud.storage.common.Command;
 import com.meretskiy.cloud.storage.common.FileInfo;
-import com.meretskiy.cloud.storage.common.Message;
+import com.meretskiy.cloud.storage.common.Sender;
 
 import java.io.File;
 import java.io.IOException;
@@ -77,21 +77,21 @@ public class Controller implements Initializable {
         String password = passField.getText();
         GUIHelper.currentServerPath = Paths.get(login);
         GUIHelper.currentClientPath = Paths.get("client", loginField.getText());
-        Message.authInfoMessage(Network.getInstance().getCurrentChannel(), login, password);
+        Sender.sendAuthInfo(Network.getInstance().getCurrentChannel(), login, password);
     }
 
     public @FXML void btnSendFile() {
         filePath = Paths.get(clientPathField.getText(), clientsFileLabel.getText());
         if (Files.isDirectory(filePath)) {
-            Message.commandMessage(Network.getInstance().getCurrentChannel(), Command.TRANSFER_DIRECTORY);
-            Message.directoryMessage(filePath, Network.getInstance().getCurrentChannel(), future -> {
+            Sender.sendCommand(Network.getInstance().getCurrentChannel(), Command.TRANSFER_DIRECTORY);
+            Sender.sendDirectory(filePath, Network.getInstance().getCurrentChannel(), future -> {
                 if (!future.isSuccess()) {
                     GUIHelper.showError((Exception) future.cause());
                 }
             });
         } else {
-            Message.commandMessage(Network.getInstance().getCurrentChannel(), Command.TRANSFER_FILE);
-            Message.fileMessage(filePath, Network.getInstance().getCurrentChannel(), future -> {
+            Sender.sendCommand(Network.getInstance().getCurrentChannel(), Command.TRANSFER_FILE);
+            Sender.sendFile(filePath, Network.getInstance().getCurrentChannel(), future -> {
                 if (!future.isSuccess()) {
                     GUIHelper.showError((Exception) future.cause());
                 }
@@ -115,17 +115,17 @@ public class Controller implements Initializable {
                 filter(fileInfo -> fileInfo.getName().equals(serversFileLabel.getText())).collect(Collectors.toList());
 
         if (list.get(0).getFileType().equals(FileInfo.FileType.DIRECTORY)) {
-            Message.commandMessage(Network.getInstance().getCurrentChannel(), Command.DOWNLOAD_DIRECTORY);
+            Sender.sendCommand(Network.getInstance().getCurrentChannel(), Command.DOWNLOAD_DIRECTORY);
         } else  {
-            Message.commandMessage(Network.getInstance().getCurrentChannel(), Command.DOWNLOAD_FILE);
+            Sender.sendCommand(Network.getInstance().getCurrentChannel(), Command.DOWNLOAD_FILE);
         }
-        Message.fileNameMessage(filePath, Network.getInstance().getCurrentChannel());
+        Sender.sendFileName(filePath, Network.getInstance().getCurrentChannel());
     }
 
     public @FXML void btnServerFileDelete() {
         filePath = Paths.get(serverPathField.getText(), serversFileLabel.getText());
-        Message.commandMessage(Network.getInstance().getCurrentChannel(), Command.DELETE_FILE);
-        Message.fileNameMessage(filePath,Network.getInstance().getCurrentChannel());
+        Sender.sendCommand(Network.getInstance().getCurrentChannel(), Command.DELETE_FILE);
+        Sender.sendFileName(filePath,Network.getInstance().getCurrentChannel());
             }
 
 
@@ -161,7 +161,7 @@ public class Controller implements Initializable {
                     Path path = Paths.get(serverPathField.getText()).resolve(fileInfo.getName());
                     if (fileInfo.getFileType() == FileInfo.FileType.DIRECTORY) {
                         GUIHelper.targetServerDirectory = fileInfo.getName();
-                        Message.filesListRequestMessage(path, Network.getInstance().getCurrentChannel(), Command.SERVER_PATH_DOWN);                    }
+                        Sender.sendFilesListRequest(path, Network.getInstance().getCurrentChannel(), Command.SERVER_PATH_DOWN);                    }
                 }
             }
         });
@@ -170,7 +170,7 @@ public class Controller implements Initializable {
         serversFileLabel = new Label();
         GUIHelper.setFileLabel(serverFilesTable, serversFileLabel);
         btnRefreshClientFilesTable();
-        Message.commandMessage(Network.getInstance().getCurrentChannel(), Command.SERVER_PATH_CURRENT);
+        Sender.sendCommand(Network.getInstance().getCurrentChannel(), Command.SERVER_PATH_CURRENT);
     }
 
 

@@ -3,7 +3,7 @@ package com.meretskiy.cloud.storage.server;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import com.meretskiy.cloud.storage.common.Command;
-import com.meretskiy.cloud.storage.common.Message;
+import com.meretskiy.cloud.storage.common.Sender;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import org.apache.commons.io.FileUtils;
 
@@ -63,11 +63,11 @@ public class MainHandler extends ChannelInboundHandlerAdapter {
 
     private void readCommand(byte readed, ChannelHandlerContext ctx) {
         if (readed == Command.SERVER_PATH_CURRENT.getByteValue()) {
-            Message.filesListMessage(currentServerPathGUI, ctx.channel(), Command.SERVER_PATH_CURRENT);
+            Sender.sendFilesList(currentServerPathGUI, ctx.channel(), Command.SERVER_PATH_CURRENT);
         } else if (readed == Command.SERVER_PATH_UP.getByteValue()) {
             if (!currentServerPathGUI.equals(rootServerPath)) {
                 currentServerPathGUI = currentServerPathGUI.getParent();
-                Message.filesListMessage(currentServerPathGUI, ctx.channel(), Command.SERVER_PATH_UP);
+                Sender.sendFilesList(currentServerPathGUI, ctx.channel(), Command.SERVER_PATH_UP);
             }
         } else if (readed == Command.TRANSFER_DIRECTORY.getByteValue()) {
             pathBeforeDirReading = currentServerPathGUI;
@@ -121,7 +121,7 @@ public class MainHandler extends ChannelInboundHandlerAdapter {
                     currentServerPathGUI = currentServerPathGUI.getParent();
                     if (currentServerPathGUI.equals(pathBeforeDirReading)) {
                         currentState = State.IDLE;
-                        Message.filesListMessage(currentServerPathGUI, ctx.channel(), Command.SERVER_PATH_CURRENT);
+                        Sender.sendFilesList(currentServerPathGUI, ctx.channel(), Command.SERVER_PATH_CURRENT);
                         directoryReading = false;
                     }
                 } else {
@@ -151,27 +151,27 @@ public class MainHandler extends ChannelInboundHandlerAdapter {
                 } else if (!filePath.toFile().exists()) {
                     currentState = State.IDLE;
                     fileReading = false;
-                    Message.commandMessage(ctx.channel(), Command.FILE_DOES_NOT_EXIST);
+                    Sender.sendCommand(ctx.channel(), Command.FILE_DOES_NOT_EXIST);
                 } else {
                     currentState = State.IDLE;
                     fileReading = false;
                     if (readed == Command.DELETE_FILE.getByteValue()) {
                         deleteFileIfExist(filePath);
-                        Message.filesListMessage(currentServerPathGUI, ctx.channel(), Command.SERVER_PATH_CURRENT);
+                        Sender.sendFilesList(currentServerPathGUI, ctx.channel(), Command.SERVER_PATH_CURRENT);
                     } else if (readed == Command.DOWNLOAD_FILE.getByteValue()) {
-                        Message.commandMessage(ctx.channel(), Command.TRANSFER_FILE);
-                        Message.fileMessage(filePath, ctx.channel(), future -> {
+                        Sender.sendCommand(ctx.channel(), Command.TRANSFER_FILE);
+                        Sender.sendFile(filePath, ctx.channel(), future -> {
                             if (!future.isSuccess()) {
                                 future.cause().printStackTrace();
-                                Message.commandMessage(ctx.channel(), Command.DOWNLOAD_FILE_ERR);
+                                Sender.sendCommand(ctx.channel(), Command.DOWNLOAD_FILE_ERR);
                             }
                         });
                     } else if (readed == Command.DOWNLOAD_DIRECTORY.getByteValue()) {
-                        Message.commandMessage(ctx.channel(), Command.TRANSFER_DIRECTORY);
-                        Message.directoryMessage(filePath, ctx.channel(), null);
+                        Sender.sendCommand(ctx.channel(), Command.TRANSFER_DIRECTORY);
+                        Sender.sendDirectory(filePath, ctx.channel(), null);
                     } else if (readed == Command.SERVER_PATH_DOWN.getByteValue()) {
                         currentServerPathGUI = currentServerPathGUI.resolve(filePath.getFileName());
-                        Message.filesListMessage(currentServerPathGUI, ctx.channel(), Command.SERVER_PATH_DOWN);
+                        Sender.sendFilesList(currentServerPathGUI, ctx.channel(), Command.SERVER_PATH_DOWN);
                     }
 
                 }
@@ -188,7 +188,7 @@ public class MainHandler extends ChannelInboundHandlerAdapter {
                         if (directoryReading) {
                             currentState = State.FILE_TYPE;
                         } else {
-                            Message.filesListMessage(currentServerPathGUI, ctx.channel(), Command.SERVER_PATH_CURRENT);
+                            Sender.sendFilesList(currentServerPathGUI, ctx.channel(), Command.SERVER_PATH_CURRENT);
                             currentState = State.IDLE;
                         }
                     } else {
@@ -217,7 +217,7 @@ public class MainHandler extends ChannelInboundHandlerAdapter {
                             if (directoryReading) {
                                 currentState = State.FILE_TYPE;
                             } else {
-                                Message.filesListMessage(currentServerPathGUI, ctx.channel(), Command.SERVER_PATH_CURRENT);
+                                Sender.sendFilesList(currentServerPathGUI, ctx.channel(), Command.SERVER_PATH_CURRENT);
                                 currentState = State.IDLE;
                             }
                             break;
