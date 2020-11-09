@@ -1,7 +1,7 @@
 package com.meretskiy.cloud.storage.server;
 
 import com.meretskiy.cloud.storage.common.Command;
-import com.meretskiy.cloud.storage.common.Message;
+import com.meretskiy.cloud.storage.common.Sender;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
@@ -47,11 +47,11 @@ public class AuthHandler extends ChannelInboundHandlerAdapter {
         String userDirectory = authService.getDirectoryByLoginPass(login, password);
 
         if (userDirectory == null) {
-            Message.commandMessage(ctx.channel(), Command.AUTH_ERR);
+            Sender.sendCommand(ctx.channel(), Command.AUTH_ERR);
             logger.debug("Неверный логин: " + login + " или пароль: " + password);
             return;
         } else {
-            Message.commandMessage(ctx.channel(), Command.AUTH_OK);
+            Sender.sendCommand(ctx.channel(), Command.AUTH_OK);
             ctx.pipeline().addLast(new MainHandler(Paths.get("server", userDirectory)));
             ctx.pipeline().remove(this);
             logger.debug("Пользователь : " + login + " успешно прошел авторизацию.");
